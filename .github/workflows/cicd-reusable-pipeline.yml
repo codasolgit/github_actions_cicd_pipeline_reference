@@ -1,0 +1,570 @@
+name: Multi-Cloud Enterprise Reusable CI/CD Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      cloud:
+        required: true
+        type: string
+
+      aws_region:
+        required: false
+        type: string
+
+      gcp_region:
+        required: false
+        type: string
+
+      java_dir:
+        required: false
+        type: string
+
+      python_dir:
+        required: false
+        type: string
+
+      node_dir:
+        required: false
+        type: string
+
+      image_name:
+        required: false
+        type: string
+
+      ecr_repo:
+        required: false
+        type: string
+
+      helm_chart_path:
+        required: false
+        type: string
+
+      codeartifact_domain:
+        required: false
+        type: string
+
+      codeartifact_repo:
+        required: false
+        type: string
+
+      domain_owner:
+        required: false
+        type: string    
+
+      role-to-assume:
+        required: false
+        type: string  
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+
+  JAVA_DIR: ${{ inputs.java_dir }}
+  PYTHON_DIR: ${{ inputs.python_dir }}
+  NODE_DIR: ${{ inputs.node_dir }}
+  IMAGE_NAME: ${{ inputs.image_name }}
+  VERSION: v${{ github.run_number }}
+  ECR_REPO: ${{ inputs.ecr_repo }}
+  AWS_REGION: ${{ inputs.aws_region }}
+  ROLE_ARN : ${{ inputs.role-to-assume }}
+  GCP_REGION: ${{ inputs.gcp_region }}
+  HELM_PATH: ${{ inputs.helm_chart_path }}
+  CODEARTIFACT_DOMAIN: ${{ inputs.codeartifact_domain }}
+  CODEARTIFACT_REPO: ${{ inputs.codeartifact_repo }}
+  DOMAIN_OWNER: ${{ inputs.domain_owner }}
+
+# ==========================================================
+# =================  BUILD & UNIT TEST =====================
+# ==========================================================
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ---------------- JAVA ----------------
+
+      - name: Setup Java
+        if: ${{ hashFiles(format('{0}/pom.xml', env.JAVA_DIR)) != '' }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      - name: Java Build & Test
+        if: ${{ hashFiles(format('{0}/pom.xml', env.JAVA_DIR)) != '' }}
+        run: |
+          cd $JAVA_DIR
+          mvn clean verify
+
+      # ---------------- PYTHON ----------------
+
+      - name: Setup Python
+        if: ${{ hashFiles(format('{0}/requirements.txt', env.PYTHON_DIR)) != '' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      - name: Python Test
+        if: ${{ hashFiles(format('{0}/requirements.txt', env.PYTHON_DIR)) != '' }}
+        run: |
+          cd $PYTHON_DIR
+          pip install -r requirements.txt
+          pip install pytest
+          pytest
+
+      # ---------------- NODE ----------------
+
+      - name: Setup Node
+        if: ${{ hashFiles(format('{0}/package.json', env.NODE_DIR)) != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Node Test
+        if: ${{ hashFiles(format('{0}/package.json', env.NODE_DIR)) != '' }}
+        run: |
+          cd $NODE_DIR
+          npm install
+          npm test -- --watchAll=false
+
+# ==========================================================
+# =================  UPLOAD ARTIFACT =======================
+# ==========================================================
+
+  upload-artifact:
+    runs-on: ubuntu-latest   
+    # needs: build-test
+    steps:
+      # ---------------- Checkout Code ----------------
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+  
+      # ---------------- AWS LOGIN ----------------
+      - name: Configure AWS Credentials
+        if: inputs.cloud == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+  
+      # ---------------- Upload Full Repo Artifact ----------------
+      - name: Upload Full Repo
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifact-file
+          path: |
+            .
+            !node_modules/**
+            !__pycache__/**
+            !image.tar
+  
+      # ==========================================================
+      # ================= JAVA → CODEARTIFACT ====================
+      # ==========================================================
+  
+      - name: Setup Java
+        if: hashFiles('java_springboot/pom.xml') != ''
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+  
+      - name: Deploy Java to CodeArtifact
+        if: inputs.cloud == 'aws' && hashFiles('java_springboot/pom.xml') != ''
+        run: |
+          cd java_springboot
+  
+          VERSION=0.0.${{ github.run_number }}
+  
+          CODEARTIFACT_AUTH_TOKEN=$(aws codeartifact get-authorization-token \
+            --domain $CODEARTIFACT_DOMAIN \
+            --domain-owner $DOMAIN_OWNER \
+            --query authorizationToken \
+            --output text \
+            --region $AWS_REGION)
+  
+          mkdir -p ~/.m2
+  
+          cat > ~/.m2/settings.xml <<EOF
+          <settings>
+            <servers>
+              <server>
+                <id>$CODEARTIFACT_DOMAIN-$CODEARTIFACT_REPO</id>
+                <username>aws</username>
+                <password>${CODEARTIFACT_AUTH_TOKEN}</password>
+              </server>
+            </servers>
+          </settings>
+          EOF
+  
+          mvn versions:set -DnewVersion=$VERSION
+          mvn clean deploy \
+            -DaltDeploymentRepository=$CODEARTIFACT_DOMAIN-$CODEARTIFACT_REPO::default::https://$CODEARTIFACT_DOMAIN-$DOMAIN_OWNER.d.codeartifact.$AWS_REGION.amazonaws.com/maven/$CODEARTIFACT_REPO/ \
+            -DskipTests
+  
+      # ==========================================================
+      # ================= PYTHON → CODEARTIFACT ==================
+      # ==========================================================
+  
+      - name: Setup Python
+        if: hashFiles('python_app/requirements.txt') != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+  
+      - name: Deploy Python to CodeArtifact
+        if: inputs.cloud == 'aws' && hashFiles('python_app/requirements.txt') != ''
+        run: |
+          cd python_app
+  
+          pip install build twine
+          python -m build
+  
+          aws codeartifact login \
+            --tool twine \
+            --domain $CODEARTIFACT_DOMAIN \
+            --domain-owner $DOMAIN_OWNER \
+            --repository $CODEARTIFACT_REPO \
+            --region $AWS_REGION
+  
+          twine upload dist/*
+  
+      # ==========================================================
+      # ================= NODE → CODEARTIFACT ====================
+      # ==========================================================
+  
+      - name: Setup Node
+        if: hashFiles('react_node_app/package.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+  
+      - name: Deploy Node to CodeArtifact
+        if: inputs.cloud == 'aws' && hashFiles('react_node_app/package.json') != ''
+        run: |
+          cd react_node_app
+  
+          aws codeartifact login \
+            --tool npm \
+            --domain $CODEARTIFACT_DOMAIN \
+            --domain-owner $DOMAIN_OWNER \
+            --repository $CODEARTIFACT_REPO \
+            --region $AWS_REGION
+          npm publish
+  
+      # ==========================================================
+      # ================= GCP ARTIFACT REGISTRY ==================
+      # ==========================================================
+  
+      - name: Authenticate to GCP
+        if: inputs.cloud == 'gcp'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+  
+      - name: Setup GCloud SDK
+        if: inputs.cloud == 'gcp'
+        uses: google-github-actions/setup-gcloud@v2
+  
+      - name: Push Full Repo Artifact to GCP
+        if: inputs.cloud == 'gcp'
+        run: |
+          zip -r full-repo.zip .
+  
+          gcloud artifacts generic upload \
+            --location=$GCP_REGION \
+            --repository=my-repo \
+            --package=full-repo \
+            --version=$VERSION \
+            --source=full-repo.zip
+  
+      # ==========================================================
+      # ================= AZURE ARTIFACTS ========================
+      # ==========================================================
+  
+      - name: Azure Login
+        if: inputs.cloud == 'azure'
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+  
+      - name: Push Full Repo Artifact to Azure
+        if: inputs.cloud == 'azure'
+        run: |
+          zip -r full-repo.zip .
+  
+          az artifacts universal publish \
+            --organization https://dev.azure.com/my-org \
+            --feed my-feed \
+            --name full-repo \
+            --version $VERSION \
+            --description "Full repo artifact" \
+            --path full-repo.zip
+
+# ==========================================================
+# ================= DOCKER BUILD & PUSH ====================
+# ==========================================================
+
+  docker-build-push:
+    runs-on: ubuntu-latest
+    needs:  upload-artifact
+    steps:
+      - uses: actions/checkout@v4
+      
+      # BUILD IMAGE
+
+      - name: Build Docker Image
+        run: |
+          docker build -t $IMAGE_NAME:$VERSION .
+          docker tag $IMAGE_NAME:$VERSION $IMAGE_NAME:latest
+
+# ================= AWS =================
+
+      - name: Configure AWS Credentials
+        if: inputs.cloud == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to AWS ECR
+        if: inputs.cloud == 'aws'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push to AWS ECR
+        if: inputs.cloud == 'aws'
+        run: |
+          docker tag $IMAGE_NAME:$VERSION ${{ secrets.AWS_ECR_URL }}/$ECR_REPO:$VERSION
+          docker tag $IMAGE_NAME:latest ${{ secrets.AWS_ECR_URL }}/$ECR_REPO:latest
+
+          docker push ${{ secrets.AWS_ECR_URL }}/$ECR_REPO:$VERSION
+          docker push ${{ secrets.AWS_ECR_URL }}/$ECR_REPO:latest
+
+# ================= GCP =================
+
+      - name: Authenticate to GCP
+        if: inputs.cloud == 'gcp'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure Docker for GCR
+        if: inputs.cloud == 'gcp'
+        run: gcloud auth configure-docker
+
+      - name: Push to GCR
+        if: inputs.cloud == 'gcp'
+        run: |
+          docker tag $IMAGE_NAME:$VERSION gcr.io/${{ secrets.GCP_PROJECT_ID }}/$IMAGE_NAME:$VERSION
+          docker tag $IMAGE_NAME:latest gcr.io/${{ secrets.GCP_PROJECT_ID }}/$IMAGE_NAME:latest
+
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/$IMAGE_NAME:$VERSION
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/$IMAGE_NAME:latest
+
+# ================= AZURE =================
+
+      - name: Azure Login
+        if: inputs.cloud == 'azure'
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Push to Azure ACR
+        if: inputs.cloud == 'azure'
+        run: |
+          az acr login --name ${{ secrets.ACR_NAME }}
+          docker tag $IMAGE_NAME:$VERSION ${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE_NAME:$VERSION
+          docker tag $IMAGE_NAME:latest ${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE_NAME:latest
+
+          docker push ${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE_NAME:$VERSION
+          docker push ${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE_NAME:latest
+          
+# ==========================================================
+# =================  SONAR SCAN ============================
+# ==========================================================
+
+  sonar-scan:
+    runs-on: ubuntu-latest
+    needs: docker-build-push
+  
+    steps:
+      - uses: actions/checkout@v4
+  
+      # -------- JAVA SONAR --------
+      - name: Sonar Scan (Java)
+        if: ${{ hashFiles(format('{0}/pom.xml', env.JAVA_DIR)) != '' }}
+        run: |
+          cd $JAVA_DIR
+          mvn sonar:sonar \
+            -Dsonar.projectKey=multi-lang-demo \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+  
+      # -------- PYTHON / NODE SONAR --------
+      - name: Sonar Scan (Python / Node)
+        if: ${{ hashFiles(format('{0}/pom.xml', env.JAVA_DIR)) == '' }}
+        run: |
+          npm install -g sonar-scanner
+  
+          sonar-scanner \
+            -Dsonar.projectKey=multi-lang-demo \
+            -Dsonar.sources=. \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+
+
+# ==========================================================
+# =================  SNYK SCAN =============================
+# ==========================================================
+
+  snyk-scan:
+    runs-on: ubuntu-latest
+    needs: docker-build-push
+  
+    steps:
+      - uses: actions/checkout@v4
+  
+      - name: Install Snyk
+        run: npm install -g snyk
+  
+      - name: Authenticate Snyk
+        run: snyk auth ${{ secrets.SNYK_TOKEN }}
+  
+      - name: Snyk Test
+        run: |
+          if [ -f "$JAVA_DIR/pom.xml" ]; then
+            cd $JAVA_DIR
+            snyk test --severity-threshold=high --org=${{ secrets.SNYK_ORG_ID }}
+            echo -e "\033[0;32m✅ Snyk Security Scan Passed - No vulnerabilities found\033[0m"
+      
+          elif [ -f "$PYTHON_DIR/requirements.txt" ]; then
+            cd $PYTHON_DIR
+            snyk test --severity-threshold=high --file=requirements.txt --org=${{ secrets.SNYK_ORG_ID }}
+            echo -e "\033[0;32m✅ Snyk Security Scan Passed - No vulnerabilities found\033[0m"
+      
+          elif [ -f "$NODE_DIR/package.json" ]; then
+            cd $NODE_DIR
+            snyk test --severity-threshold=high --file=package.json --org=${{ secrets.SNYK_ORG_ID }}
+            echo -e "\033[0;32m✅ Snyk Security Scan Passed - No vulnerabilities found\033[0m"
+      
+          else
+            echo "No supported project found"
+          fi
+
+# ==========================================================
+# ================= HELM DEPLOYMENT (CD) ===================
+# ==========================================================
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs:
+      - sonar-scan
+      - snyk-scan 
+  
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+  
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+  
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+  
+  # ================= AWS AUTH =================
+  
+      - name: Configure AWS Credentials
+        if: inputs.cloud == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+  
+      - name: Verify AWS Identity
+        if: inputs.cloud == 'aws'
+        run: aws sts get-caller-identity
+  
+  # ================= CONNECT EKS =================
+  
+      - name: Update kubeconfig
+        if: inputs.cloud == 'aws'
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ secrets.EKS_CLUSTER }} \
+            --region ${{ env.AWS_REGION }}
+  
+  # ================= VERIFY CLUSTER =================
+  
+      - name: Check Kubernetes Context
+        if: inputs.cloud == 'aws'
+        run: |
+          kubectl config get-contexts
+          kubectl cluster-info
+  
+      - name: Verify Nodes
+        if: inputs.cloud == 'aws'
+        run: |
+          kubectl get nodes
+  
+  # ================= HELM DEPLOY =================
+  
+      - name: Deploy Application
+        if: inputs.cloud == 'aws'
+        run: |
+          helm upgrade --install multiapp ${{ env.HELM_PATH }} \
+            --namespace default \
+            --create-namespace \
+            --set image.repository=${{ secrets.AWS_ECR_URL }}/${{ env.ECR_REPO }} \
+            --set image.tag=${{ env.VERSION }}
+
+# ================= GCP GKE =================
+
+      - name: Authenticate to GCP
+        if: inputs.cloud == 'gcp'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Get GKE Credentials
+        if: inputs.cloud == 'gcp'
+        run: |
+          gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER }} \
+            --region $GCP_REGION \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Helm Deploy GKE
+        if: inputs.cloud == 'gcp'
+        run: |
+          helm upgrade --install multiapp $HELM_PATH \
+            --set image.repository=gcr.io/${{ secrets.GCP_PROJECT_ID }}/$IMAGE_NAME \
+            --set image.tag=$VERSION
+
+# ================= AZURE AKS =================
+
+      - name: Azure Login
+        if: inputs.cloud == 'azure'
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Connect AKS
+        if: inputs.cloud == 'azure'
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ secrets.AKS_RG }} \
+            --name ${{ secrets.AKS_CLUSTER }}
+
+      - name: Helm Deploy AKS
+        if: inputs.cloud == 'azure'
+        run: |
+          helm upgrade --install multiapp $HELM_PATH \
+            --set image.repository=${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE_NAME \
+            --set image.tag=$VERSION

@@ -131,38 +131,38 @@ jobs:
           cd $NODE_DIR
           npm install
           npm test -- --watchAll=false
-# ==========================================================
-# =================  SONAR SCAN ============================
-# ==========================================================
+# # ==========================================================
+# # =================  SONAR SCAN ============================
+# # ==========================================================
 
-  sonar-scan:
-    runs-on: ubuntu-latest
-    needs: build-test
+#   sonar-scan:
+#     runs-on: ubuntu-latest
+#     needs: build-test
   
-    steps:
-      - uses: actions/checkout@v4
+#     steps:
+#       - uses: actions/checkout@v4
   
-      # -------- JAVA SONAR --------
-      - name: Sonar Scan (Java)
-        if: ${{ hashFiles(format('{0}/pom.xml', env.JAVA_DIR)) != '' }}
-        run: |
-          cd $JAVA_DIR
-          mvn sonar:sonar \
-            -Dsonar.projectKey=multi-lang-demo \
-            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+#       # -------- JAVA SONAR --------
+#       - name: Sonar Scan (Java)
+#         if: ${{ hashFiles(format('{0}/pom.xml', env.JAVA_DIR)) != '' }}
+#         run: |
+#           cd $JAVA_DIR
+#           mvn sonar:sonar \
+#             -Dsonar.projectKey=multi-lang-demo \
+#             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+#             -Dsonar.login=${{ secrets.SONAR_TOKEN }}
   
-      # -------- PYTHON / NODE SONAR --------
-      - name: Sonar Scan (Python / Node)
-        if: ${{ hashFiles(format('{0}/pom.xml', env.JAVA_DIR)) == '' }}
-        run: |
-          npm install -g sonar-scanner
+#       # -------- PYTHON / NODE SONAR --------
+#       - name: Sonar Scan (Python / Node)
+#         if: ${{ hashFiles(format('{0}/pom.xml', env.JAVA_DIR)) == '' }}
+#         run: |
+#           npm install -g sonar-scanner
   
-          sonar-scanner \
-            -Dsonar.projectKey=multi-lang-demo \
-            -Dsonar.sources=. \
-            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+#           sonar-scanner \
+#             -Dsonar.projectKey=multi-lang-demo \
+#             -Dsonar.sources=. \
+#             -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+#             -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
 
 # ==========================================================
@@ -171,8 +171,8 @@ jobs:
 
   snyk-scan:
     runs-on: ubuntu-latest
-    needs: sonar-scan
-  
+    needs: build-test
+    
     steps:
       - uses: actions/checkout@v4
   

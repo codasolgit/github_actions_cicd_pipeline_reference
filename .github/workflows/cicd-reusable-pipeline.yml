@@ -379,24 +379,57 @@ jobs:
 #             --path full-repo.zip
 
 # ==========================================================
-# ================= DOCKER BUILD & PUSH ====================
+# ================= DOCKER BUILD  ==========================
 # ==========================================================
 
-  docker-build-push:
+  docker-build:
     runs-on: ubuntu-latest
-    # needs:  upload-artifact
+
+    outputs:
+      image-name: ${{ steps.meta.outputs.image }}
+
     steps:
       - uses: actions/checkout@v4
-      
-      # BUILD IMAGE
+
+      - name: Set Image Name
+        id: meta
+        run: echo "image=$IMAGE_NAME:$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build Docker Image
         run: |
           docker build -t $IMAGE_NAME:$VERSION .
           docker tag $IMAGE_NAME:$VERSION $IMAGE_NAME:latest
 
-# ================= AWS =================
+      # Save image as tar
+      - name: Save Docker Image
+        run: |
+          docker save $IMAGE_NAME:$VERSION -o image.tar
 
+      - name: Upload Image Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: image.tar
+# ==========================================================
+# ================= DOCKER Push  ==========================
+# ==========================================================
+docker-push:
+    runs-on: ubuntu-latest
+    needs: docker-build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Image Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load Docker Image
+        run: |
+          docker load -i image.tar
+
+# ================= AWS =================
       - name: Configure AWS Credentials
         if: inputs.cloud == 'aws'
         uses: aws-actions/configure-aws-credentials@v4
@@ -418,7 +451,6 @@ jobs:
           docker push ${{ secrets.AWS_ECR_URL }}/$ECR_REPO:latest
 
 # ================= GCP =================
-
       - name: Authenticate to GCP
         if: inputs.cloud == 'gcp'
         uses: google-github-actions/auth@v2
@@ -440,7 +472,6 @@ jobs:
           docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/$IMAGE_NAME:latest
 
 # ================= AZURE =================
-
       - name: Azure Login
         if: inputs.cloud == 'azure'
         uses: azure/login@v2
@@ -456,7 +487,6 @@ jobs:
 
           docker push ${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE_NAME:$VERSION
           docker push ${{ secrets.ACR_NAME }}.azurecr.io/$IMAGE_NAME:latest
-          
 
 
 # ==========================================================

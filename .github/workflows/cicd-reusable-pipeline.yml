@@ -536,7 +536,7 @@ jobs:
 # ================= HELM DEPLOYMENT (CD) ===================
 # ==========================================================
 
-  deploy:
+  helm-deploy:
     runs-on: ubuntu-latest
     needs: docker-push
     steps:

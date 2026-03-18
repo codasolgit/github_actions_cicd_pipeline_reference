@@ -165,43 +165,43 @@ jobs:
 #             -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
 
-# # ==========================================================
-# # =================  SNYK SCAN =============================
-# # ==========================================================
+# ==========================================================
+# =================  SNYK SCAN =============================
+# ==========================================================
 
-#   snyk-scan:
-#     runs-on: ubuntu-latest
-#     needs: build-test
+  snyk-scan:
+    runs-on: ubuntu-latest
+    needs: build-test
     
-#     steps:
-#       - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
   
-#       - name: Install Snyk
-#         run: npm install -g snyk
+      - name: Install Snyk
+        run: npm install -g snyk
   
-#       - name: Authenticate Snyk
-#         run: snyk auth ${{ secrets.SNYK_TOKEN }}
+      - name: Authenticate Snyk
+        run: snyk auth ${{ secrets.SNYK_TOKEN }}
   
-#       - name: Snyk Test
-#         run: |
-#           if [ -f "$JAVA_DIR/pom.xml" ]; then
-#             cd $JAVA_DIR
-#             snyk test --severity-threshold=high --org=${{ secrets.SNYK_ORG_ID }}
-#             echo -e "\033[0;32m✅ Snyk Security Scan Passed - No vulnerabilities found\033[0m"
+      - name: Snyk Test
+        run: |
+          if [ -f "$JAVA_DIR/pom.xml" ]; then
+            cd $JAVA_DIR
+            snyk test --severity-threshold=high --org=${{ secrets.SNYK_ORG_ID }}
+            echo -e "\033[0;32m✅ Snyk Security Scan Passed - No vulnerabilities found\033[0m"
       
-#           elif [ -f "$PYTHON_DIR/requirements.txt" ]; then
-#             cd $PYTHON_DIR
-#             snyk test --severity-threshold=high --file=requirements.txt --org=${{ secrets.SNYK_ORG_ID }}
-#             echo -e "\033[0;32m✅ Snyk Security Scan Passed - No vulnerabilities found\033[0m"
+          elif [ -f "$PYTHON_DIR/requirements.txt" ]; then
+            cd $PYTHON_DIR
+            snyk test --severity-threshold=high --file=requirements.txt --org=${{ secrets.SNYK_ORG_ID }}
+            echo -e "\033[0;32m✅ Snyk Security Scan Passed - No vulnerabilities found\033[0m"
       
-#           elif [ -f "$NODE_DIR/package.json" ]; then
-#             cd $NODE_DIR
-#             snyk test --severity-threshold=high --file=package.json --org=${{ secrets.SNYK_ORG_ID }}
-#             echo -e "\033[0;32m✅ Snyk Security Scan Passed - No vulnerabilities found\033[0m"
+          elif [ -f "$NODE_DIR/package.json" ]; then
+            cd $NODE_DIR
+            snyk test --severity-threshold=high --file=package.json --org=${{ secrets.SNYK_ORG_ID }}
+            echo -e "\033[0;32m✅ Snyk Security Scan Passed - No vulnerabilities found\033[0m"
       
-#           else
-#             echo "No supported project found"
-#           fi
+          else
+            echo "No supported project found"
+          fi
           
 # ==========================================================
 # =================  UPLOAD ARTIFACT =======================
@@ -209,7 +209,7 @@ jobs:
 
   upload-artifact:
     runs-on: ubuntu-latest   
-    # needs: snyk-scan
+    needs: snyk-scan
     steps:
       # ---------------- Checkout Code ----------------
       - name: Checkout Repository
@@ -384,7 +384,7 @@ jobs:
 
   docker-build:
     runs-on: ubuntu-latest
-
+    needs: upload-artifact
     outputs:
       image-name: ${{ steps.meta.outputs.image }}
 

@@ -168,79 +168,79 @@ jobs:
 # ==========================================================
 # =================  SNYK SCAN =============================
 # ==========================================================
-
- snyk-scan:
-  runs-on: ubuntu-latest
-  needs: build-test
-
-  env:
-    SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-    SNYK_ORG_ID: ${{ secrets.SNYK_ORG_ID }}
-    JAVA_DIR: java_springboot
-    PYTHON_DIR: python_app
-    NODE_DIR: react_node_app
-
-  steps:
-    # ---------------- Checkout ----------------
-    - name: Checkout Code
-      uses: actions/checkout@v4
-
-    # ---------------- Install Snyk ----------------
-    - name: Install Snyk CLI
-      run: npm install -g snyk
-
-    # ---------------- Authenticate ----------------
-    - name: Authenticate Snyk
-      run: snyk auth $SNYK_TOKEN
-
-    # ---------------- Debug (IMPORTANT) ----------------
-    - name: Debug Paths
-      run: |
-        echo "JAVA_DIR=$JAVA_DIR"
-        echo "PYTHON_DIR=$PYTHON_DIR"
-        echo "NODE_DIR=$NODE_DIR"
-
-    # ==================================================
-    # ================= SNYK SCAN =======================
-    # ==================================================
-
-    - name: Run Snyk Scan
-      run: |
-        set -e
-
-        if [ -f "$JAVA_DIR/pom.xml" ]; then
-          echo "🔍 Scanning Java project..."
-          cd $JAVA_DIR
-          snyk test --severity-threshold=critical --org=$SNYK_ORG_ID || true
-
-        elif [ -f "$PYTHON_DIR/requirements.txt" ]; then
-          echo "🔍 Scanning Python project..."
-          cd $PYTHON_DIR
-          snyk test --file=requirements.txt --severity-threshold=critical --org=$SNYK_ORG_ID || true
-
-        elif [ -f "$NODE_DIR/package.json" ]; then
-          echo "🔍 Scanning Node project..."
-          cd $NODE_DIR
-          snyk test --file=package.json --severity-threshold=critical --org=$SNYK_ORG_ID || true
-
-        else
-          echo "⚠️ No supported project found"
-        fi
-
-    # ---------------- Monitor (Optional but Recommended) ----------------
-    - name: Upload to Snyk Dashboard
-      run: |
-        if [ -f "$JAVA_DIR/pom.xml" ]; then
-          cd $JAVA_DIR
-          snyk monitor --org=$SNYK_ORG_ID
-        elif [ -f "$PYTHON_DIR/requirements.txt" ]; then
-          cd $PYTHON_DIR
-          snyk monitor --org=$SNYK_ORG_ID
-        elif [ -f "$NODE_DIR/package.json" ]; then
-          cd $NODE_DIR
-          snyk monitor --org=$SNYK_ORG_ID
-        fi
-          
+  
+  snyk-scan:
+    runs-on: ubuntu-latest
+    needs: build-test
+  
+    env:
+      SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      SNYK_ORG_ID: ${{ secrets.SNYK_ORG_ID }}
+      JAVA_DIR: java_springboot
+      PYTHON_DIR: python_app
+      NODE_DIR: react_node_app
+  
+    steps:
+      # ---------------- Checkout ----------------
+      - name: Checkout Code
+        uses: actions/checkout@v4
+  
+      # ---------------- Install Snyk ----------------
+      - name: Install Snyk CLI
+        run: npm install -g snyk
+  
+      # ---------------- Authenticate ----------------
+      - name: Authenticate Snyk
+        run: snyk auth $SNYK_TOKEN
+  
+      # ---------------- Debug (IMPORTANT) ----------------
+      - name: Debug Paths
+        run: |
+          echo "JAVA_DIR=$JAVA_DIR"
+          echo "PYTHON_DIR=$PYTHON_DIR"
+          echo "NODE_DIR=$NODE_DIR"
+  
+      # ==================================================
+      # ================= SNYK SCAN =======================
+      # ==================================================
+  
+      - name: Run Snyk Scan
+        run: |
+          set -e
+  
+          if [ -f "$JAVA_DIR/pom.xml" ]; then
+            echo "🔍 Scanning Java project..."
+            cd $JAVA_DIR
+            snyk test --severity-threshold=critical --org=$SNYK_ORG_ID || true
+  
+          elif [ -f "$PYTHON_DIR/requirements.txt" ]; then
+            echo "🔍 Scanning Python project..."
+            cd $PYTHON_DIR
+            snyk test --file=requirements.txt --severity-threshold=critical --org=$SNYK_ORG_ID || true
+  
+          elif [ -f "$NODE_DIR/package.json" ]; then
+            echo "🔍 Scanning Node project..."
+            cd $NODE_DIR
+            snyk test --file=package.json --severity-threshold=critical --org=$SNYK_ORG_ID || true
+  
+          else
+            echo "⚠️ No supported project found"
+          fi
+  
+      # ---------------- Monitor (Optional but Recommended) ----------------
+      - name: Upload to Snyk Dashboard
+        run: |
+          if [ -f "$JAVA_DIR/pom.xml" ]; then
+            cd $JAVA_DIR
+            snyk monitor --org=$SNYK_ORG_ID
+          elif [ -f "$PYTHON_DIR/requirements.txt" ]; then
+            cd $PYTHON_DIR
+            snyk monitor --org=$SNYK_ORG_ID
+          elif [ -f "$NODE_DIR/package.json" ]; then
+            cd $NODE_DIR
+            snyk monitor --org=$SNYK_ORG_ID
+          fi
+            
 # ==========================================================
 # =================  UPLOAD ARTIFACT =======================
 # ==========================================================
